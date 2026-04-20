@@ -24,10 +24,6 @@ conda env create -f env.yml
     │   │     ├── train.csv
     │   │     ├── test.csv
     │   │     └── valid.csv
-    │   ├── O-linked
-    │   │     ├── train.csv
-    │   │     ├── test.csv
-    │   │     └── valid.csv
     ```
 
 ## Usage
@@ -39,8 +35,6 @@ put checkpoints under folder `checkpoints/`:
     │       └── N-linked
     │             └──ESM-3B
     |             └──ESM-150M
-    │       └── O-linked
-    │             └──ESM-3B
     ├── data
     ├── model
     ├── scripts
