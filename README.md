@@ -99,10 +99,3 @@ bash scripts/predict.sh
 ```
 
 The CSV files are expected to contain the protein sequence, the target candidate-site position, and the binary label. The training/evaluation code uses the full sequence as input and classifies only the supplied target candidate position.
-
-## Biological Scope and Limitations
-
-- The released inference workflow is intended for N-linked glycosylation candidate sites matching `N-X-[S/T]` with `X != P`.
-- Non-candidate residues are not scored and are not interpreted as model negatives.
-- Predictions estimate sequence-based glycosylation propensity and should not be interpreted as experimental validation.
-- Negative labels in glycoproteomics-derived datasets may include unobserved or unannotated sites rather than experimentally proven non-glycosylated sites.
