@@ -1,0 +1,9 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+
+outputs/
+checkpoint/
+tensorboard/
+wandb/
+predictions.csv

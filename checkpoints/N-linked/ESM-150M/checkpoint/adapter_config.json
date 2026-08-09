@@ -1,7 +1,7 @@
 {
   "alpha_pattern": {},
   "auto_mapping": null,
-  "base_model_name_or_path": "/lustre/home/zyfeng/model/esm-150m",
+  "base_model_name_or_path": "facebook/esm2_t30_150M_UR50D",
   "bias": "all",
   "eva_config": null,
   "exclude_modules": null,

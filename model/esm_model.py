@@ -14,8 +14,8 @@ class EsmClassificationHead(nn.Module):
         self.out_proj = nn.Linear(config.hidden_size, config.num_labels)
 
     def forward(self, features, pos,**kwargs):
+        # Extract the ESM embedding at the supplied target candidate residue.
         x = torch.stack([features[i, p, :] for i, p in enumerate(pos)], dim=0)
-        # Process the extracted values in batch
         x = self.dropout(x)
         x = self.dense(x)
         x = torch.tanh(x)

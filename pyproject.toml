@@ -1,7 +1,7 @@
 [project]
-name = "esm-lora-gly"
+name = "lora-n-gly"
 version = "0.1.0"
-description = "Add your description here"
+description = "Sequence-based N-linked glycosylation-site prediction with ESM-2 and LoRA"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = []

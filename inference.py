@@ -15,6 +15,16 @@ from model.esm_model import EsmModelClassification
 
 
 SEED = 42
+OUTPUT_COLUMNS = [
+    "sequence_id",
+    "position",
+    "residue",
+    "motif",
+    "predicted_label",
+    "prob_positive",
+    "prob_negative",
+    "threshold",
+]
 
 
 def setSeed() -> None:
@@ -127,8 +137,23 @@ def inferResidueTokenOffset(tokenizer: EsmTokenizer) -> int:
 
 
 def getCandidatePositions(sequence: str, glycoType: str) -> List[int]:
-    candidateResidues = ["N"] if glycoType == "N" else ["S", "T"]
-    return [idx + 1 for idx, aa in enumerate(sequence) if aa in candidateResidues]
+    if glycoType == "N":
+        return [
+            idx + 1
+            for idx in range(len(sequence) - 2)
+            if sequence[idx] == "N"
+            and sequence[idx + 1] != "P"
+            and sequence[idx + 2] in {"S", "T"}
+        ]
+
+    return [idx + 1 for idx, aa in enumerate(sequence) if aa in {"S", "T"}]
+
+
+def getCandidateMotif(sequence: str, pos1Based: int, glycoType: str) -> str:
+    idx = pos1Based - 1
+    if glycoType == "N":
+        return sequence[idx : idx + 3]
+    return sequence[idx]
 
 
 def buildWindowGroups(
@@ -166,6 +191,7 @@ def predictGivenPositions(
     windowSize: Optional[int],
     device: torch.device,
     residueTokenOffset: int,
+    threshold: float,
 ) -> Dict[int, Dict[str, float]]:
     sequenceLength = len(sequence)
     validPositions = sorted({pos for pos in targetPositions1Based if 1 <= pos <= sequenceLength})
@@ -198,13 +224,13 @@ def predictGivenPositions(
                 )
                 logits = outputs.logits
                 probabilities = torch.softmax(logits, dim=-1).cpu().numpy()
-                predictedLabels = torch.argmax(logits, dim=-1).cpu().numpy()
 
                 for idx, (globalPos, _) in enumerate(batchEntries):
+                    probPositive = float(probabilities[idx, 1])
                     predictionMap[globalPos] = {
-                        "predicted_label": int(predictedLabels[idx]),
+                        "predicted_label": int(probPositive >= threshold),
                         "prob_negative": float(probabilities[idx, 0]),
-                        "prob_positive": float(probabilities[idx, 1]),
+                        "prob_positive": probPositive,
                     }
 
     return predictionMap
@@ -220,19 +246,11 @@ def predictSequenceCandidates(
     windowSize: Optional[int],
     device: torch.device,
     residueTokenOffset: int,
+    threshold: float,
 ) -> pd.DataFrame:
     candidatePositions = getCandidatePositions(sequence, glycoType)
     if not candidatePositions:
-        return pd.DataFrame(
-            columns=[
-                "sequence_id",
-                "position",
-                "residue",
-                "predicted_label",
-                "prob_positive",
-                "prob_negative",
-            ]
-        )
+        return pd.DataFrame(columns=OUTPUT_COLUMNS)
 
     predictionMap = predictGivenPositions(
         model=model,
@@ -243,6 +261,7 @@ def predictSequenceCandidates(
         windowSize=windowSize,
         device=device,
         residueTokenOffset=residueTokenOffset,
+        threshold=threshold,
     )
 
     rows = []
@@ -253,9 +272,11 @@ def predictSequenceCandidates(
                 "sequence_id": sequenceId,
                 "position": pos1Based,
                 "residue": sequence[pos1Based - 1],
+                "motif": getCandidateMotif(sequence, pos1Based, glycoType),
                 "predicted_label": predItem["predicted_label"],
                 "prob_positive": predItem["prob_positive"],
                 "prob_negative": predItem["prob_negative"],
+                "threshold": threshold,
             }
         )
 
@@ -269,24 +290,44 @@ def printCandidateResults(resultDf: pd.DataFrame) -> None:
 
     for sequenceId, subDf in resultDf.groupby("sequence_id", sort=False):
         print(f"\n--- Sequence: {sequenceId} | candidate_sites={len(subDf)} ---")
-        print("position\tresidue\tpredicted_label\tprob_positive\tprob_negative")
+        print("position\tresidue\tmotif\tpredicted_label\tprob_positive\tprob_negative\tthreshold")
         for _, row in subDf.iterrows():
             print(
-                f"{int(row['position'])}\t{row['residue']}\t{int(row['predicted_label'])}\t"
-                f"{row['prob_positive']:.6f}\t{row['prob_negative']:.6f}"
+                f"{int(row['position'])}\t{row['residue']}\t{row['motif']}\t"
+                f"{int(row['predicted_label'])}\t{row['prob_positive']:.6f}\t"
+                f"{row['prob_negative']:.6f}\t{row['threshold']:.2f}"
             )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Predict all candidate glycosylation sites for one sequence or FASTA."
+        description=(
+            "Predict candidate glycosylation sites for one sequence or FASTA. "
+            "For N-linked prediction, only canonical N-X-[S/T] sequons with X != P are scored."
+        )
     )
     parser.add_argument("--sequence", type=str, default=None)
     parser.add_argument("--sequence_id", type=str, default="input_sequence")
     parser.add_argument("--fasta_file", type=str, default=None)
-    parser.add_argument("--type", type=str, default="N", choices=["N", "O"])
+    parser.add_argument(
+        "--type",
+        type=str,
+        default="N",
+        choices=["N", "O"],
+        help="Prediction type. N mode scores canonical N-X-[S/T] sequons only.",
+    )
     parser.add_argument("--base_model", type=str, default="facebook/esm2_t36_3B_UR50D")
-    parser.add_argument("--lora_model", type=str, default="./lora_checkpoint")
+    parser.add_argument(
+        "--lora_model",
+        type=str,
+        default="./checkpoints/N-linked/ESM-3B/checkpoint",
+    )
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=0.5,
+        help="Probability threshold for positive calls. Common choices: 0.05, 0.50, or 0.80.",
+    )
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument(
         "--window_size",
@@ -303,6 +344,9 @@ def main() -> None:
     parser.add_argument("--output_csv", type=str, default=None)
 
     args = parser.parse_args()
+    if not 0.0 <= args.threshold <= 1.0:
+        raise ValueError("--threshold must be between 0 and 1.")
+
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
     setSeed()
 
@@ -326,11 +370,12 @@ def main() -> None:
             windowSize=args.window_size,
             device=device,
             residueTokenOffset=residueTokenOffset,
+            threshold=args.threshold,
         )
         if not resultDf.empty:
             allResults.append(resultDf)
 
-    finalDf = pd.concat(allResults, ignore_index=True) if allResults else pd.DataFrame()
+    finalDf = pd.concat(allResults, ignore_index=True) if allResults else pd.DataFrame(columns=OUTPUT_COLUMNS)
     printCandidateResults(finalDf)
 
     if args.output_csv:

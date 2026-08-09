@@ -19,10 +19,10 @@ from accelerate import Accelerator
 import numpy as np
 import logging
 from model.esm_model import EsmModelClassification
-from sklearn.metrics import f1_score, accuracy_score, matthews_corrcoef, precision_score, roc_auc_score,confusion_matrix
+from sklearn.metrics import f1_score, accuracy_score, average_precision_score, matthews_corrcoef, precision_score, recall_score, roc_auc_score,confusion_matrix
 import numpy as np
-parser = argparse.ArgumentParser(description='parser example')
-parser.add_argument('--model_name', default='facebook/esm2-3b', type=str, help='Path to the model')
+parser = argparse.ArgumentParser(description='Train or evaluate LoRA-N-Gly.')
+parser.add_argument('--model_name', default='facebook/esm2_t36_3B_UR50D', type=str, help='Base ESM-2 model name or path')
 parser.add_argument('--stage', default='test', type=str, help='train or test')
 parser.add_argument('--train_dataset', default='./data/N-GlycositeAltas/train.csv', type=str, help='Path to train dataset')
 parser.add_argument('--valid_dataset',default='./data/N-GlycositeAltas/valid.csv',type=str,help='')
@@ -62,6 +62,7 @@ data_test = Dataset.from_pandas(test_df)
 def preprocess(example):
     tokenized_example = tokenizer(example["sequence"])
     tokenized_example['labels'] = example['label']
+    # pos is the target candidate residue position used by the classification head.
     tokenized_example['pos'] = example['pos']
     
     return tokenized_example
@@ -76,27 +77,32 @@ data_test = data_test.map(preprocess, remove_columns=data_test.column_names, bat
 def compute_metrics(eval_preds):
    
     logits, labels = eval_preds
-    probality = softmax(logits, axis=1)[:,-1]
+    probability = softmax(logits, axis=1)[:,-1]
     predictions = np.argmax(logits, axis=-1)
-    f1_micro_average = f1_score(y_true=labels, y_pred=predictions, average='micro')
+    unique_labels = np.unique(labels)
+    f1 = f1_score(y_true=labels, y_pred=predictions, zero_division=0)
     accuracy = accuracy_score(y_true=labels, y_pred=predictions)
     mcc = matthews_corrcoef(y_true=labels, y_pred=predictions)
-    auc = roc_auc_score(y_true=labels, y_score=probality)
-    precision = precision_score(y_true=labels, y_pred=predictions)
-    cm = confusion_matrix(y_true=labels, y_pred=predictions)
-    TP = cm[1][1]
-    TN = cm[0][0]
-    FP = cm[0][1]
-    FN = cm[1][0]
-    SN = TP / (TP + FN)
-    SP = TN / (TN + FP)
-    metrics = {'f1': f1_micro_average,
+    auc_roc = roc_auc_score(y_true=labels, y_score=probability) if len(unique_labels) == 2 else float('nan')
+    auc_pr = average_precision_score(y_true=labels, y_score=probability) if len(unique_labels) == 2 else float('nan')
+    precision = precision_score(y_true=labels, y_pred=predictions, zero_division=0)
+    recall = recall_score(y_true=labels, y_pred=predictions, zero_division=0)
+    TN, FP, FN, TP = confusion_matrix(y_true=labels, y_pred=predictions, labels=[0, 1]).ravel()
+    specificity = TN / (TN + FP) if (TN + FP) else 0.0
+    metrics = {'f1': f1,
                'accuracy': accuracy,
                'mcc': mcc,
-               'auc':auc,
+               'auc_roc': auc_roc,
+               'auc_pr': auc_pr,
                'precision': precision,
-               'SN': SN,
-               'SP': SP}
+               'recall': recall,
+               'SN': recall,
+               'specificity': specificity,
+               'SP': specificity,
+               'TP': int(TP),
+               'FP': int(FP),
+               'TN': int(TN),
+               'FN': int(FN)}
     return metrics
 
 
@@ -156,4 +162,3 @@ else:
     peft_lora_finetuning_trainer = get_trainer(peft_model)
     predictions = peft_lora_finetuning_trainer.predict(data_test)
     logging.info(predictions.metrics)
-
