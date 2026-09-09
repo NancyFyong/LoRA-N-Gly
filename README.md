@@ -1,7 +1,5 @@
 # LoRA-N-Gly
 
-**Zhiyong Feng** <sup>1,2</sup>, Xing Zhang<sup>2</sup>, He Wang<sup>2</sup>, Xu Hong<sup>2</sup>, Jian Zhan<sup>2,3</sup>, and Yaoqi Zhou<sup>2</sup>
-
 Sequence-based prediction of N-linked glycosylation sites by tuning ESM-2 protein language models with low-rank adaptation (LoRA).
 
 ![LoRA-N-Gly framework](./intro/framework.jpg "LoRA-N-Gly framework")
